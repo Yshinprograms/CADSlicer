@@ -111,7 +111,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDirr)shared</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)shared</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -130,7 +130,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDirr)shared</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)shared</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -143,6 +143,7 @@
     <ClInclude Include="framework.h" />
     <ClInclude Include="memory_mapping_win32.h" />
     <ClInclude Include="open_vector_format.pb.h" />
+    <ClInclude Include="OvfConverter.h" />
     <ClInclude Include="ovf_file_reader.h" />
     <ClInclude Include="ovf_file_writer.h" />
     <ClInclude Include="ovf_lut.pb.h" />
@@ -151,6 +152,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="open_vector_format.pb.cc" />
+    <ClCompile Include="OvfConverter.cpp" />
     <ClCompile Include="OvfReaderWriter.cpp" />
     <ClCompile Include="ovf_file_reader.cc" />
     <ClCompile Include="ovf_file_writer.cc" />

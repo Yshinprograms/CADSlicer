@@ -44,8 +44,6 @@ namespace geometry {
         std::vector<TopoDS_Wire> GetSectionWires(const TopoDS_Shape& section_shape) const;
         std::vector<TopoDS_Edge> GetWireEdges(const TopoDS_Wire& wire) const;
         std::optional<std::vector<geometry_contract::Point2D>> DiscretizeEdge(const TopoDS_Edge& edge, double deflection_tolerance) const;
-
-        // CORRECTED: Use the full template syntax with the forward-declared class
         std::vector<geometry_contract::Point2D> DiscretizeCurve(const opencascade::handle<Geom_Curve>& curve, Standard_Real first_param, Standard_Real last_param, double tolerance) const;
 
         std::string m_file_path;
