@@ -7,6 +7,13 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CADSlicerMain", "CADSlicerM
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OvfReaderWriter", "OvfReaderWriter\OvfReaderWriter.vcxproj", "{EA6800E2-7D56-4265-9FC4-EE15A9929397}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "StepParser", "StepParser\StepParser.vcxproj", "{F089E915-85C1-463B-8C15-F07BE0F26131}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "shared", "shared", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
+	ProjectSection(SolutionItems) = preProject
+		shared\GeometryContract.h = shared\GeometryContract.h
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -31,6 +38,14 @@ Global
 		{EA6800E2-7D56-4265-9FC4-EE15A9929397}.Release|x64.Build.0 = Release|x64
 		{EA6800E2-7D56-4265-9FC4-EE15A9929397}.Release|x86.ActiveCfg = Release|Win32
 		{EA6800E2-7D56-4265-9FC4-EE15A9929397}.Release|x86.Build.0 = Release|Win32
+		{F089E915-85C1-463B-8C15-F07BE0F26131}.Debug|x64.ActiveCfg = Debug|x64
+		{F089E915-85C1-463B-8C15-F07BE0F26131}.Debug|x64.Build.0 = Debug|x64
+		{F089E915-85C1-463B-8C15-F07BE0F26131}.Debug|x86.ActiveCfg = Debug|Win32
+		{F089E915-85C1-463B-8C15-F07BE0F26131}.Debug|x86.Build.0 = Debug|Win32
+		{F089E915-85C1-463B-8C15-F07BE0F26131}.Release|x64.ActiveCfg = Release|x64
+		{F089E915-85C1-463B-8C15-F07BE0F26131}.Release|x64.Build.0 = Release|x64
+		{F089E915-85C1-463B-8C15-F07BE0F26131}.Release|x86.ActiveCfg = Release|Win32
+		{F089E915-85C1-463B-8C15-F07BE0F26131}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

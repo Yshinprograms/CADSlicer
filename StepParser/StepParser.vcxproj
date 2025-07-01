@@ -21,8 +21,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{ea6800e2-7d56-4265-9fc4-ee15a9929397}</ProjectGuid>
-    <RootNamespace>OvfReaderWriter</RootNamespace>
+    <ProjectGuid>{f089e915-85c1-463b-8c15-f07be0f26131}</ProjectGuid>
+    <RootNamespace>StepParser</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -111,7 +111,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDirr)shared</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)shared;$(SolutionDir)libs\occt_vc14-64-pch\inc</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -130,7 +130,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDirr)shared</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)shared;$(SolutionDir)libs\occt_vc14-64-pch\inc</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -139,28 +139,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="consts.h" />
-    <ClInclude Include="framework.h" />
-    <ClInclude Include="memory_mapping_win32.h" />
-    <ClInclude Include="open_vector_format.pb.h" />
-    <ClInclude Include="ovf_file_reader.h" />
-    <ClInclude Include="ovf_file_writer.h" />
-    <ClInclude Include="ovf_lut.pb.h" />
-    <ClInclude Include="pch.h" />
-    <ClInclude Include="util.h" />
+    <ClInclude Include="StepSlicer.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="open_vector_format.pb.cc" />
-    <ClCompile Include="OvfReaderWriter.cpp" />
-    <ClCompile Include="ovf_file_reader.cc" />
-    <ClCompile Include="ovf_file_writer.cc" />
-    <ClCompile Include="ovf_lut.pb.cc" />
-    <ClCompile Include="pch.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
-    </ClCompile>
+    <ClCompile Include="StepSlicer.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
