@@ -116,47 +116,54 @@ namespace geometry {
         std::cout << "    [LoadModel] Shape contains: " << solidCount << " solids, "
             << shellCount << " shells, " << faceCount << " faces" << std::endl;
 
-        // The solid-building logic is still good practice for other files, so we keep it.
-        if (loaded_shape.ShapeType() >= TopAbs_SOLID) {
+        // FIXED LOGIC: Handle different shape types properly
+        if (loaded_shape.ShapeType() == TopAbs_SOLID || loaded_shape.ShapeType() == TopAbs_COMPSOLID) {
+            // Already a solid, can use directly
+            std::cout << "    [LoadModel] Shape is already a solid, returning as-is." << std::endl;
             return loaded_shape;
         }
-
-        //if (loaded_shape.ShapeType() < TopAbs_SHELL) {
-        //    std::cerr << "    [LoadModel] ERROR: Loaded shape is not a shell or solid, cannot create solid." << std::endl;
-        //    return {};
-        //}
-
-        std::cout << "    [LoadModel] Shape is a Shell. Attempting to build a solid from it..." << std::endl;
-
-        BRepBuilderAPI_MakeSolid solid_builder;
-        solid_builder.Add(TopoDS::Shell(loaded_shape));
-
-        if (solid_builder.IsDone()) {
-            // THE FIX: The result of .Solid() is a TopoDS_Solid. It can be directly
-            // returned as a TopoDS_Shape because of inheritance. No cast needed.
-            std::cout << "    [LoadModel] Successfully built a solid from the shell." << std::endl;
-            return solid_builder.Solid();
+        
+        if (loaded_shape.ShapeType() == TopAbs_COMPOUND) {
+            // COMPOUND case: Check if it contains solids
+            if (solidCount > 0) {
+                std::cout << "    [LoadModel] COMPOUND contains " << solidCount << " solids, returning as-is." << std::endl;
+                return loaded_shape;
+            } else {
+                std::cout << "    [LoadModel] COMPOUND contains no solids, cannot slice." << std::endl;
+                return {};
+            }
         }
-        else {
-            std::cerr << "      [LoadModel] WARNING: MakeSolid failed. Trying to sew faces first..." << std::endl;
-            BRepBuilderAPI_Sewing sewed_shell_builder;
-            sewed_shell_builder.Add(loaded_shape);
-            sewed_shell_builder.Perform();
-            TopoDS_Shape sewed_shell = sewed_shell_builder.SewedShape();
 
-            if (!sewed_shell.IsNull() && sewed_shell.ShapeType() == TopAbs_SHELL) {
-                // Re-initialize the builder or use a new one
-                BRepBuilderAPI_MakeSolid solid_builder_from_sewed;
-                solid_builder_from_sewed.Add(TopoDS::Shell(sewed_shell));
-                if (solid_builder_from_sewed.IsDone()) {
-                    std::cout << "    [LoadModel] Successfully built a solid from the SEWED shell." << std::endl;
-                    // THE FIX: Same as above.
-                    return solid_builder_from_sewed.Solid();
+        if (loaded_shape.ShapeType() == TopAbs_SHELL) {
+            std::cout << "    [LoadModel] Shape is a Shell. Attempting to build a solid from it..." << std::endl;
+
+            BRepBuilderAPI_MakeSolid solid_builder;
+            solid_builder.Add(TopoDS::Shell(loaded_shape));
+
+            if (solid_builder.IsDone()) {
+                std::cout << "    [LoadModel] Successfully built a solid from the shell." << std::endl;
+                return solid_builder.Solid();
+            }
+            else {
+                std::cerr << "      [LoadModel] WARNING: MakeSolid failed. Trying to sew faces first..." << std::endl;
+                BRepBuilderAPI_Sewing sewed_shell_builder;
+                sewed_shell_builder.Add(loaded_shape);
+                sewed_shell_builder.Perform();
+                TopoDS_Shape sewed_shell = sewed_shell_builder.SewedShape();
+
+                if (!sewed_shell.IsNull() && sewed_shell.ShapeType() == TopAbs_SHELL) {
+                    BRepBuilderAPI_MakeSolid solid_builder_from_sewed;
+                    solid_builder_from_sewed.Add(TopoDS::Shell(sewed_shell));
+                    if (solid_builder_from_sewed.IsDone()) {
+                        std::cout << "    [LoadModel] Successfully built a solid from the SEWED shell." << std::endl;
+                        return solid_builder_from_sewed.Solid();
+                    }
                 }
             }
         }
 
-        std::cerr << "    [LoadModel] ERROR: Failed to build a solid from the loaded shape." << std::endl;
+        // For any other shape types (FACE, WIRE, EDGE, VERTEX), we cannot slice
+        std::cerr << "    [LoadModel] ERROR: Cannot slice shape of type " << loaded_shape.ShapeType() << ". Only solids, compounds with solids, or shells can be sliced." << std::endl;
         return {};
     }
 
