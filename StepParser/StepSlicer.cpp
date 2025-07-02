@@ -7,6 +7,7 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Solid.hxx>
+#include <TopoDS_Vertex.hxx>
 #include <BRep_Tool.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Dir.hxx>
@@ -25,497 +26,397 @@
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <TopExp.hxx>
-#include <TopoDS_Vertex.hxx>
+#include <TopAbs_ShapeEnum.hxx>
 
 #include <optional>
-#include <utility> // For std::move
+#include <utility>
+#include <iostream>
 
 namespace geometry {
 
+    // =============================================================================
+    // PUBLIC INTERFACE - SLAP Level 1: High-level orchestration
+    // =============================================================================
+    
     StepSlicer::StepSlicer(const std::string& step_file_path)
         : m_file_path(step_file_path) {
     }
 
     std::vector<geometry_contract::SlicedLayer> StepSlicer::Slice(double layer_height, double deflection_tolerance) {
-        std::cout << "[StepSlicer] Starting slicing process..." << std::endl;
-
-        TopoDS_Shape model = LoadModel();
+        LogSlicingStart();
+        
+        TopoDS_Shape model = LoadAndValidateModel();
         if (model.IsNull()) {
-            // The error happens here, so this message is key!
-            std::cerr << "[StepSlicer] ERROR: LoadModel() failed and returned a null shape." << std::endl;
+            LogSlicingError("Model loading failed");
             return {};
         }
 
-        SlicingParameters params = CalculateSlicingParameters(model, layer_height, deflection_tolerance);
-
-        auto all_layers = GenerateAllLayers(model, params);
-
-        std::cout << "[StepSlicer] Slicing process finished. Returning " << all_layers.size() << " layers." << std::endl;
-        return all_layers;
-
-        std::cout << "[StepSlicer] Slicing process finished. Returning " << all_layers.size() << " layers." << std::endl;
-        return all_layers;
+        SlicingParameters params = CalculateSlicingBounds(model, layer_height, deflection_tolerance);
+        std::vector<geometry_contract::SlicedLayer> layers = GenerateAllSlices(model, params);
+        
+        LogSlicingComplete(layers.size());
+        return layers;
     }
 
-    TopoDS_Shape StepSlicer::LoadModel() const {
-        std::cout << "  [LoadModel] Attempting to read file: " << m_file_path << std::endl;
-        STEPControl_Reader reader;
+    // =============================================================================
+    // PRIVATE HELPERS - SLAP Level 2: Mid-level operations
+    // =============================================================================
 
-        IFSelect_ReturnStatus status = reader.ReadFile(m_file_path.c_str());
-        if (status != IFSelect_RetDone) {
-            std::cerr << "    [LoadModel] ERROR: STEPControl_Reader::ReadFile() failed with status code: " << status << std::endl;
-            return {};
-        }
-        std::cout << "    [LoadModel] File read successfully. Transferring roots..." << std::endl;
-        reader.TransferRoots();
+    TopoDS_Shape StepSlicer::LoadAndValidateModel() const {
+        TopoDS_Shape shape = LoadStepFile();
+        if (shape.IsNull()) return {};
+        
+        if (!ValidateShape(shape)) return {};
+        
+        return ProcessShapeForSlicing(shape);
+    }
 
-        TopoDS_Shape loaded_shape = reader.OneShape();
-        if (loaded_shape.IsNull()) {
-            std::cerr << "    [LoadModel] ERROR: Shape is null after transferring roots." << std::endl;
-            return {};
-        }
+    StepSlicer::SlicingParameters StepSlicer::CalculateSlicingBounds(const TopoDS_Shape& model, double layer_height, double deflection_tolerance) const {
+        Bnd_Box bounds = CalculateBoundingBox(model);
+        return ExtractSlicingParameters(bounds, layer_height, deflection_tolerance);
+    }
 
-        std::cout << "    [LoadModel] Initial shape loaded. ShapeType: " << loaded_shape.ShapeType() << std::endl;
+    std::vector<geometry_contract::SlicedLayer> StepSlicer::GenerateAllSlices(const TopoDS_Shape& model, const SlicingParameters& params) const {
+        std::vector<geometry_contract::SlicedLayer> layers;
+        layers.reserve(EstimateLayerCount(params));
 
-        // Add more detailed shape type information
-        std::cout << "    [LoadModel] Shape type details: ";
-        switch (loaded_shape.ShapeType()) {
-        case TopAbs_COMPOUND: std::cout << "COMPOUND"; break;
-        case TopAbs_COMPSOLID: std::cout << "COMPSOLID"; break;
-        case TopAbs_SOLID: std::cout << "SOLID"; break;
-        case TopAbs_SHELL: std::cout << "SHELL"; break;
-        case TopAbs_FACE: std::cout << "FACE"; break;
-        case TopAbs_WIRE: std::cout << "WIRE"; break;
-        case TopAbs_EDGE: std::cout << "EDGE"; break;
-        case TopAbs_VERTEX: std::cout << "VERTEX"; break;
-        default: std::cout << "UNKNOWN"; break;
-        }
-        std::cout << std::endl;
+        const double slice_offset = params.layer_height / 2.0;
+        
+        for (double z = params.z_min; z < params.z_max; z += params.layer_height) {
+            double slice_z = z + slice_offset;
+            if (slice_z > params.z_max) break;
 
-        //================================================================
-        // THE FINAL DIAGNOSTIC: Check the validity of the loaded shape.
-        //================================================================
-        std::cout << "    [LoadModel] Performing validity check on the loaded shape..." << std::endl;
-        BRepCheck_Analyzer anAnalyzer(loaded_shape);
-
-        if (!anAnalyzer.IsValid()) {
-            std::cerr << "    [LoadModel] ERROR: THE LOADED SHAPE IS NOT VALID." << std::endl;
-            std::cerr << "      This is the likely cause of the slicing failure." << std::endl;
-            // The shape is invalid, so we stop here.
-            return {};
-        }
-
-        std::cout << "    [LoadModel] Shape validity check passed." << std::endl;
-
-        // Count sub-shapes for better understanding
-        int solidCount = 0, shellCount = 0, faceCount = 0;
-        for (TopExp_Explorer exp(loaded_shape, TopAbs_SOLID); exp.More(); exp.Next()) solidCount++;
-        for (TopExp_Explorer exp(loaded_shape, TopAbs_SHELL); exp.More(); exp.Next()) shellCount++;
-        for (TopExp_Explorer exp(loaded_shape, TopAbs_FACE); exp.More(); exp.Next()) faceCount++;
-
-        std::cout << "    [LoadModel] Shape contains: " << solidCount << " solids, "
-            << shellCount << " shells, " << faceCount << " faces" << std::endl;
-
-        // FIXED LOGIC: Handle different shape types properly
-        if (loaded_shape.ShapeType() == TopAbs_SOLID || loaded_shape.ShapeType() == TopAbs_COMPSOLID) {
-            // Already a solid, can use directly
-            std::cout << "    [LoadModel] Shape is already a solid, returning as-is." << std::endl;
-            return loaded_shape;
+            auto layer = CreateSingleSlice(model, slice_z, z, params.deflection_tolerance);
+            if (HasValidContours(layer)) {
+                layers.push_back(std::move(layer));
+            }
         }
         
-        if (loaded_shape.ShapeType() == TopAbs_COMPOUND) {
-            // COMPOUND case: Check if it contains solids
-            if (solidCount > 0) {
-                std::cout << "    [LoadModel] COMPOUND contains " << solidCount << " solids, returning as-is." << std::endl;
-                return loaded_shape;
-            } else {
-                std::cout << "    [LoadModel] COMPOUND contains no solids, cannot slice." << std::endl;
-                return {};
-            }
-        }
-
-        if (loaded_shape.ShapeType() == TopAbs_SHELL) {
-            std::cout << "    [LoadModel] Shape is a Shell. Attempting to build a solid from it..." << std::endl;
-
-            BRepBuilderAPI_MakeSolid solid_builder;
-            solid_builder.Add(TopoDS::Shell(loaded_shape));
-
-            if (solid_builder.IsDone()) {
-                std::cout << "    [LoadModel] Successfully built a solid from the shell." << std::endl;
-                return solid_builder.Solid();
-            }
-            else {
-                std::cerr << "      [LoadModel] WARNING: MakeSolid failed. Trying to sew faces first..." << std::endl;
-                BRepBuilderAPI_Sewing sewed_shell_builder;
-                sewed_shell_builder.Add(loaded_shape);
-                sewed_shell_builder.Perform();
-                TopoDS_Shape sewed_shell = sewed_shell_builder.SewedShape();
-
-                if (!sewed_shell.IsNull() && sewed_shell.ShapeType() == TopAbs_SHELL) {
-                    BRepBuilderAPI_MakeSolid solid_builder_from_sewed;
-                    solid_builder_from_sewed.Add(TopoDS::Shell(sewed_shell));
-                    if (solid_builder_from_sewed.IsDone()) {
-                        std::cout << "    [LoadModel] Successfully built a solid from the SEWED shell." << std::endl;
-                        return solid_builder_from_sewed.Solid();
-                    }
-                }
-            }
-        }
-
-        // For any other shape types (FACE, WIRE, EDGE, VERTEX), we cannot slice
-        std::cerr << "    [LoadModel] ERROR: Cannot slice shape of type " << loaded_shape.ShapeType() << ". Only solids, compounds with solids, or shells can be sliced." << std::endl;
-        return {};
+        return layers;
     }
 
-    StepSlicer::SlicingParameters StepSlicer::CalculateSlicingParameters(const TopoDS_Shape& model, double layer_height, double deflection_tolerance) const {
-        std::cout << "  [CalculateSlicingParameters] Calculating model bounds..." << std::endl;
-        Bnd_Box bounding_box;
-        BRepBndLib::Add(model, bounding_box);
-        Standard_Real x_min, y_min, z_min, x_max, y_max, z_max;
-        bounding_box.Get(x_min, y_min, z_min, x_max, y_max, z_max);
-
-        std::cout << "    [CalculateSlicingParameters] Z-range found: " << z_min << " to " << z_max << std::endl;
-        std::cout << "    [CalculateSlicingParameters] Full bounds: X(" << x_min << " to " << x_max
-            << "), Y(" << y_min << " to " << y_max << "), Z(" << z_min << " to " << z_max << ")" << std::endl;
-
-        return { z_min, z_max, layer_height, deflection_tolerance };
-    }
-
-    std::vector<geometry_contract::SlicedLayer> StepSlicer::GenerateAllLayers(const TopoDS_Shape& model, const SlicingParameters& params) const {
-        std::cout << "  [GenerateAllLayers] Starting to generate layers..." << std::endl;
-        std::vector<geometry_contract::SlicedLayer> all_layers;
-        all_layers.reserve(static_cast<size_t>((params.z_max - params.z_min) / params.layer_height) + 1);
-
-        // THE FIX: Define a small epsilon to offset the slice plane
-        // This avoids degenerate intersections on flat faces.
-        // We choose half the layer height to ensure we are centered within the layer.
-        const double fuzz = params.layer_height / 2.0;
-
-        int layer_count = 0;
-
-        // The loop now stops *before* the last layer height to avoid slicing above the model.
-        for (double z_base = params.z_min; z_base < params.z_max; z_base += params.layer_height) {
-
-            // The actual slice happens in the middle of the conceptual layer
-            double z_slice = z_base + fuzz;
-
-            // Don't slice past the top of the model
-            if (z_slice > params.z_max) {
-                std::cout << "    [GenerateAllLayers] Skipping slice at Z = " << z_slice << " (beyond model bounds)" << std::endl;
-                break;
-            }
-
-            std::cout << "    [GenerateAllLayers] Attempting to slice layer " << ++layer_count << " at Z = " << z_slice << std::endl;
-
-            // Pass the fuzzed z_slice height, not the base height
-            auto current_layer = SliceSingleLayer(model, z_slice, params.deflection_tolerance);
-
-            // We will store the layer with its base height for consistency
-            current_layer.ZHeight = z_base;
-
-            if (!current_layer.contours.empty()) {
-                all_layers.push_back(std::move(current_layer));
-            }
-            else {
-                std::cout << "      [GenerateAllLayers] WARNING: Slice at Z = " << z_slice << " produced no contours." << std::endl;
-            }
-        }
-        std::cout << "  [GenerateAllLayers] Finished generating layers." << std::endl;
-        return all_layers;
-    }
-
-    geometry_contract::SlicedLayer StepSlicer::SliceSingleLayer(const TopoDS_Shape& model, double z_height, double deflection_tolerance) const {
+    geometry_contract::SlicedLayer StepSlicer::CreateSingleSlice(const TopoDS_Shape& model, double slice_z, double layer_z, double tolerance) const {
         geometry_contract::SlicedLayer layer;
-        // Note: We will set the final ZHeight in the calling function (GenerateAllLayers)
-        layer.ZHeight = z_height;
+        layer.ZHeight = layer_z;
 
-        TopoDS_Shape section_shape = PerformSection(model, z_height);
-
-        if (!section_shape.IsNull()) {
-            std::cout << "        [SliceSingleLayer] Section shape is valid, building contours..." << std::endl;
-            layer.contours = BuildContoursFromSection(section_shape, deflection_tolerance);
+        TopoDS_Shape section = PerformSliceOperation(model, slice_z);
+        if (!section.IsNull()) {
+            layer.contours = ExtractContoursFromSection(section, tolerance);
         }
-        else {
-            std::cout << "        [SliceSingleLayer] WARNING: Section shape is null!" << std::endl;
-        }
-
-        std::cout << "        [SliceSingleLayer] Found " << layer.contours.size() << " contours for this layer." << std::endl;
 
         return layer;
     }
 
-    TopoDS_Shape StepSlicer::PerformSection(const TopoDS_Shape& model, double z_height) const {
-        gp_Pln slicing_plane(gp_Pnt(0, 0, z_height), gp_Dir(0, 0, 1));
-        BRepAlgoAPI_Section section_algorithm(model, slicing_plane);
+    // =============================================================================
+    // PRIVATE HELPERS - SLAP Level 3: Low-level implementations
+    // =============================================================================
 
-        // Add logging around the Build() call
-        std::cout << "          [PerformSection] Building section..." << std::endl;
-        section_algorithm.Build();
-
-        if (!section_algorithm.IsDone()) {
-            std::cerr << "            [PerformSection] ERROR: BRepAlgoAPI_Section::Build() failed." << std::endl;
+    TopoDS_Shape StepSlicer::LoadStepFile() const {
+        STEPControl_Reader reader;
+        
+        if (reader.ReadFile(m_file_path.c_str()) != IFSelect_RetDone) {
             return {};
         }
-
-        std::cout << "          [PerformSection] Section built successfully." << std::endl;
-
-        TopoDS_Shape result = section_algorithm.Shape();
-
-        // Add detailed analysis of the section result
-        if (result.IsNull()) {
-            std::cout << "            [PerformSection] WARNING: Section result is null." << std::endl;
-        }
-        else {
-            std::cout << "            [PerformSection] Section result type: ";
-            switch (result.ShapeType()) {
-            case TopAbs_COMPOUND: std::cout << "COMPOUND"; break;
-            case TopAbs_COMPSOLID: std::cout << "COMPSOLID"; break;
-            case TopAbs_SOLID: std::cout << "SOLID"; break;
-            case TopAbs_SHELL: std::cout << "SHELL"; break;
-            case TopAbs_FACE: std::cout << "FACE"; break;
-            case TopAbs_WIRE: std::cout << "WIRE"; break;
-            case TopAbs_EDGE: std::cout << "EDGE"; break;
-            case TopAbs_VERTEX: std::cout << "VERTEX"; break;
-            default: std::cout << "UNKNOWN"; break;
-            }
-            std::cout << std::endl;
-
-            // Count elements in the section
-            int edgeCount = 0, wireCount = 0, vertexCount = 0;
-            for (TopExp_Explorer exp(result, TopAbs_EDGE); exp.More(); exp.Next()) edgeCount++;
-            for (TopExp_Explorer exp(result, TopAbs_WIRE); exp.More(); exp.Next()) wireCount++;
-            for (TopExp_Explorer exp(result, TopAbs_VERTEX); exp.More(); exp.Next()) vertexCount++;
-
-            std::cout << "            [PerformSection] Section contains: " << wireCount << " wires, "
-                << edgeCount << " edges, " << vertexCount << " vertices" << std::endl;
-        }
-
-        return result;
+        
+        reader.TransferRoots();
+        return reader.OneShape();
     }
 
-    std::vector<geometry_contract::Contour> StepSlicer::BuildContoursFromSection(const TopoDS_Shape& section_shape, double deflection_tolerance) const {
-        std::cout << "          [BuildContoursFromSection] Starting contour building..." << std::endl;
-
-        std::vector<geometry_contract::Contour> all_contours;
-        std::vector<TopoDS_Wire> wires = GetSectionWires(section_shape);
-
-        std::cout << "          [BuildContoursFromSection] Found " << wires.size() << " wires in section." << std::endl;
-
-        for (size_t i = 0; i < wires.size(); ++i) {
-            std::cout << "            [BuildContoursFromSection] Processing wire " << (i + 1) << "..." << std::endl;
-            if (auto contour = BuildContourFromWire(wires[i], deflection_tolerance)) {
-                std::cout << "            [BuildContoursFromSection] Wire " << (i + 1) << " converted to contour with "
-                    << contour->points.size() << " points." << std::endl;
-                all_contours.push_back(std::move(*contour));
-            }
-            else {
-                std::cout << "            [BuildContoursFromSection] WARNING: Wire " << (i + 1) << " failed to convert to contour." << std::endl;
-            }
+    bool StepSlicer::ValidateShape(const TopoDS_Shape& shape) const {
+        if (shape.IsNull()) return false;
+        
+        BRepCheck_Analyzer analyzer(shape);
+        if (!analyzer.IsValid()) {
+            LogShapeValidationError();
+            return false;
         }
-
-        std::cout << "          [BuildContoursFromSection] Finished building " << all_contours.size() << " contours." << std::endl;
-        return all_contours;
+        
+        LogShapeInfo(shape);
+        return true;
     }
 
-    std::vector<TopoDS_Wire> StepSlicer::GetSectionWires(const TopoDS_Shape& section_shape) const {
-        std::cout << "            [GetSectionWires] Searching for wires in section..." << std::endl;
-
-        std::vector<TopoDS_Wire> wires;
-        TopExp_Explorer wire_explorer(section_shape, TopAbs_WIRE);
-
-        int wireCount = 0;
-        while (wire_explorer.More()) {
-            TopoDS_Wire wire = TopoDS::Wire(wire_explorer.Current());
-            if (!wire.IsNull()) {
-                wireCount++;
-                std::cout << "            [GetSectionWires] Found valid wire " << wireCount << std::endl;
-                wires.push_back(wire);
-            }
-            else {
-                std::cout << "            [GetSectionWires] WARNING: Found null wire, skipping." << std::endl;
-            }
-            wire_explorer.Next();
+    TopoDS_Shape StepSlicer::ProcessShapeForSlicing(const TopoDS_Shape& shape) const {
+        if (IsDirectlySliceable(shape)) {
+            return shape;
         }
+        
+        if (shape.ShapeType() == TopAbs_COMPOUND) {
+            return ProcessCompoundShape(shape);
+        }
+        
+        if (shape.ShapeType() == TopAbs_SHELL) {
+            return ConvertShellToSolid(shape);
+        }
+        
+        return {};
+    }
 
-        // If no wires found, try to build wires from isolated edges
+    Bnd_Box StepSlicer::CalculateBoundingBox(const TopoDS_Shape& model) const {
+        Bnd_Box box;
+        BRepBndLib::Add(model, box);
+        return box;
+    }
+
+    StepSlicer::SlicingParameters StepSlicer::ExtractSlicingParameters(const Bnd_Box& box, double layer_height, double tolerance) const {
+        Standard_Real x_min, y_min, z_min, x_max, y_max, z_max;
+        box.Get(x_min, y_min, z_min, x_max, y_max, z_max);
+        
+        return { z_min, z_max, layer_height, tolerance };
+    }
+
+    TopoDS_Shape StepSlicer::PerformSliceOperation(const TopoDS_Shape& model, double z_height) const {
+        gp_Pln slicing_plane(gp_Pnt(0, 0, z_height), gp_Dir(0, 0, 1));
+        BRepAlgoAPI_Section section_algorithm(model, slicing_plane);
+        
+        section_algorithm.Build();
+        return section_algorithm.IsDone() ? section_algorithm.Shape() : TopoDS_Shape{};
+    }
+
+    std::vector<geometry_contract::Contour> StepSlicer::ExtractContoursFromSection(const TopoDS_Shape& section, double tolerance) const {
+        std::vector<TopoDS_Wire> wires = ExtractWires(section);
+        std::vector<geometry_contract::Contour> contours;
+        
+        for (const auto& wire : wires) {
+            if (auto contour = ConvertWireToContour(wire, tolerance)) {
+                contours.push_back(std::move(*contour));
+            }
+        }
+        
+        return contours;
+    }
+
+    std::vector<TopoDS_Wire> StepSlicer::ExtractWires(const TopoDS_Shape& section) const {
+        std::vector<TopoDS_Wire> wires = FindExistingWires(section);
+        
         if (wires.empty()) {
-            std::cout << "            [GetSectionWires] No wires found, attempting to build wires from isolated edges..." << std::endl;
-
-            std::vector<TopoDS_Edge> edges;
-            TopExp_Explorer edge_explorer(section_shape, TopAbs_EDGE, TopAbs_WIRE);
-
-            while (edge_explorer.More()) {
-                TopoDS_Edge edge = TopoDS::Edge(edge_explorer.Current());
-                if (!edge.IsNull()) {
-                    edges.push_back(edge);
-                }
-                edge_explorer.Next();
-            }
-
-            std::cout << "            [GetSectionWires] Found " << edges.size() << " isolated edges, building wires..." << std::endl;
-
-            if (!edges.empty()) {
-                wires = BuildWiresFromEdges(edges);
-                std::cout << "            [GetSectionWires] Successfully built " << wires.size() << " wires from edges." << std::endl;
-            }
+            wires = BuildWiresFromLooseEdges(section);
         }
-
-        std::cout << "            [GetSectionWires] Returning " << wires.size() << " wires." << std::endl;
+        
         return wires;
     }
 
-    std::vector<TopoDS_Wire> StepSlicer::BuildWiresFromEdges(const std::vector<TopoDS_Edge>& edges) const {
-        std::cout << "              [BuildWiresFromEdges] Building wires from " << edges.size() << " edges..." << std::endl;
+    std::optional<geometry_contract::Contour> StepSlicer::ConvertWireToContour(const TopoDS_Wire& wire, double tolerance) const {
+        std::vector<TopoDS_Edge> edges = GetOrderedEdges(wire);
+        geometry_contract::Contour contour;
+        
+        for (const auto& edge : edges) {
+            if (auto points = DiscretizeEdge(edge, tolerance)) {
+                AppendPointsToContour(contour, *points);
+            }
+        }
+        
+        return contour.points.empty() ? std::nullopt : std::make_optional(contour);
+    }
 
+    // =============================================================================
+    // UTILITY FUNCTIONS - SLAP Level 4: Basic operations
+    // =============================================================================
+
+    bool StepSlicer::IsDirectlySliceable(const TopoDS_Shape& shape) const {
+        return shape.ShapeType() == TopAbs_SOLID || shape.ShapeType() == TopAbs_COMPSOLID;
+    }
+
+    TopoDS_Shape StepSlicer::ProcessCompoundShape(const TopoDS_Shape& compound) const {
+        int solid_count = CountSubShapes(compound, TopAbs_SOLID);
+        return solid_count > 0 ? compound : TopoDS_Shape{};
+    }
+
+    TopoDS_Shape StepSlicer::ConvertShellToSolid(const TopoDS_Shape& shell) const {
+        BRepBuilderAPI_MakeSolid builder;
+        builder.Add(TopoDS::Shell(shell));
+        
+        if (builder.IsDone()) {
+            return builder.Solid();
+        }
+        
+        return TryRepairAndConvert(shell);
+    }
+
+    TopoDS_Shape StepSlicer::TryRepairAndConvert(const TopoDS_Shape& shell) const {
+        BRepBuilderAPI_Sewing sewer;
+        sewer.Add(shell);
+        sewer.Perform();
+        
+        TopoDS_Shape repaired = sewer.SewedShape();
+        if (repaired.IsNull() || repaired.ShapeType() != TopAbs_SHELL) {
+            return {};
+        }
+        
+        BRepBuilderAPI_MakeSolid builder;
+        builder.Add(TopoDS::Shell(repaired));
+        
+        if (builder.IsDone()) {
+            return TopoDS_Shape(builder.Solid());
+        } else {
+            return TopoDS_Shape{};
+        }
+    }
+
+    std::vector<TopoDS_Wire> StepSlicer::FindExistingWires(const TopoDS_Shape& section) const {
         std::vector<TopoDS_Wire> wires;
-        std::vector<bool> used_edges(edges.size(), false);
-
-        for (size_t start_idx = 0; start_idx < edges.size(); ++start_idx) {
-            if (used_edges[start_idx]) {
-                continue; // Already used in another wire
-            }
-
-            std::cout << "              [BuildWiresFromEdges] Starting new wire with edge " << (start_idx + 1) << std::endl;
-
-            BRepBuilderAPI_MakeWire wire_builder;
-            std::vector<size_t> current_wire_edges;
-
-            // Start with this edge
-            wire_builder.Add(edges[start_idx]);
-            used_edges[start_idx] = true;
-            current_wire_edges.push_back(start_idx);
-
-            // Try to find connected edges
-            bool found_connection = true;
-            while (found_connection && current_wire_edges.size() < edges.size()) {
-                found_connection = false;
-
-                // Get the current end vertices of the wire being built
-                TopoDS_Vertex current_start, current_end;
-                if (wire_builder.IsDone()) {
-                    TopoDS_Wire current_wire = wire_builder.Wire();
-                    TopExp::Vertices(current_wire, current_start, current_end); // Removed the third parameter
-                }
-
-                // Look for an unused edge that connects to current_end
-                for (size_t edge_idx = 0; edge_idx < edges.size(); ++edge_idx) {
-                    if (used_edges[edge_idx]) {
-                        continue;
-                    }
-
-                    TopoDS_Vertex edge_start, edge_end;
-                    TopExp::Vertices(edges[edge_idx], edge_start, edge_end);
-
-                    // Check if this edge connects to the current wire's end
-                    if ((!current_end.IsNull() && edge_start.IsSame(current_end)) ||
-                        (!current_end.IsNull() && edge_end.IsSame(current_end))) {
-
-                        std::cout << "                [BuildWiresFromEdges] Adding connected edge " << (edge_idx + 1) << " to wire" << std::endl;
-
-                        wire_builder.Add(edges[edge_idx]);
-                        if (wire_builder.IsDone()) {
-                            used_edges[edge_idx] = true;
-                            current_wire_edges.push_back(edge_idx);
-                            found_connection = true;
-                            break;
-                        } else {
-                            std::cout << "                [BuildWiresFromEdges] WARNING: Failed to add edge " << (edge_idx + 1) << " to wire" << std::endl;
-                        }
-                    }
-                }
-            }
-
-            if (wire_builder.IsDone()) {
-                TopoDS_Wire completed_wire = wire_builder.Wire();
-                wires.push_back(completed_wire);
-                std::cout << "              [BuildWiresFromEdges] Successfully built wire " << wires.size()
-                    << " with " << current_wire_edges.size() << " edges" << std::endl;
-            } else {
-                std::cout << "              [BuildWiresFromEdges] WARNING: Failed to build wire starting with edge " << (start_idx + 1) << std::endl;
-                // Mark the edge as unused again so it might be picked up later
-                used_edges[start_idx] = false;
-            }
+        for (TopExp_Explorer exp(section, TopAbs_WIRE); exp.More(); exp.Next()) {
+            wires.push_back(TopoDS::Wire(exp.Current()));
         }
-
-        std::cout << "              [BuildWiresFromEdges] Finished building " << wires.size() << " wires from edges." << std::endl;
         return wires;
     }
 
-    std::optional<geometry_contract::Contour> StepSlicer::BuildContourFromWire(const TopoDS_Wire& wire, double deflection_tolerance) const {
-        std::cout << "              [BuildContourFromWire] Building contour from wire..." << std::endl;
-
-        geometry_contract::Contour assembled_contour;
-        std::vector<TopoDS_Edge> ordered_edges = GetWireEdges(wire);
-
-        std::cout << "              [BuildContourFromWire] Wire contains " << ordered_edges.size() << " edges." << std::endl;
-
-        for (size_t i = 0; i < ordered_edges.size(); ++i) {
-            std::cout << "              [BuildContourFromWire] Processing edge " << (i + 1) << "..." << std::endl;
-            if (auto points_from_edge = DiscretizeEdge(ordered_edges[i], deflection_tolerance)) {
-                std::cout << "              [BuildContourFromWire] Edge " << (i + 1) << " discretized to "
-                    << points_from_edge->size() << " points." << std::endl;
-                if (assembled_contour.points.empty()) {
-                    assembled_contour.points = std::move(*points_from_edge);
-                }
-                else {
-                    assembled_contour.points.insert(assembled_contour.points.end(),
-                        points_from_edge->begin() + 1,
-                        points_from_edge->end());
-                }
-            }
-            else {
-                std::cout << "              [BuildContourFromWire] WARNING: Edge " << (i + 1) << " failed to discretize." << std::endl;
-            }
-        }
-
-        if (assembled_contour.points.empty()) {
-            std::cout << "              [BuildContourFromWire] ERROR: No points generated from wire." << std::endl;
-            return std::nullopt;
-        }
-
-        std::cout << "              [BuildContourFromWire] Successfully built contour with "
-            << assembled_contour.points.size() << " points." << std::endl;
-        return assembled_contour;
+    std::vector<TopoDS_Wire> StepSlicer::BuildWiresFromLooseEdges(const TopoDS_Shape& section) const {
+        std::vector<TopoDS_Edge> edges = FindLooseEdges(section);
+        return AssembleWiresFromEdges(edges);
     }
 
-    std::vector<TopoDS_Edge> StepSlicer::GetWireEdges(const TopoDS_Wire& wire) const {
+    std::vector<TopoDS_Edge> StepSlicer::FindLooseEdges(const TopoDS_Shape& section) const {
         std::vector<TopoDS_Edge> edges;
-        BRepTools_WireExplorer ordered_edge_explorer(wire);
-        while (ordered_edge_explorer.More()) {
-            edges.push_back(ordered_edge_explorer.Current());
-            ordered_edge_explorer.Next();
+        for (TopExp_Explorer exp(section, TopAbs_EDGE, TopAbs_WIRE); exp.More(); exp.Next()) {
+            edges.push_back(TopoDS::Edge(exp.Current()));
         }
         return edges;
     }
 
-    std::optional<std::vector<geometry_contract::Point2D>> StepSlicer::DiscretizeEdge(const TopoDS_Edge& edge, double deflection_tolerance) const {
-        Standard_Real first, last;
-        // The Handle() macro is fine here as it expands to Handle<Geom_Curve>
-        Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
-        if (curve.IsNull()) {
-            std::cout << "                [DiscretizeEdge] WARNING: Edge has no 3D curve." << std::endl;
-            return std::nullopt;
+    std::vector<TopoDS_Wire> StepSlicer::AssembleWiresFromEdges(const std::vector<TopoDS_Edge>& edges) const {
+        std::vector<TopoDS_Wire> wires;
+        std::vector<bool> used(edges.size(), false);
+
+        for (size_t i = 0; i < edges.size(); ++i) {
+            if (used[i]) continue;
+            
+            if (auto wire = BuildWireFromStartingEdge(edges, used, i)) {
+                wires.push_back(*wire);
+            }
         }
-        return DiscretizeCurve(curve, first, last, deflection_tolerance);
+
+        return wires;
     }
 
-    std::vector<geometry_contract::Point2D> StepSlicer::DiscretizeCurve(const opencascade::handle<Geom_Curve>& curve, Standard_Real first_param, Standard_Real last_param, double tolerance) const {
+    std::optional<TopoDS_Wire> StepSlicer::BuildWireFromStartingEdge(const std::vector<TopoDS_Edge>& edges, std::vector<bool>& used, size_t start_idx) const {
+        BRepBuilderAPI_MakeWire builder;
+        builder.Add(edges[start_idx]);
+        used[start_idx] = true;
+
+        bool found_connection = true;
+        while (found_connection && builder.IsDone()) {
+            found_connection = false;
+            TopoDS_Vertex end_vertex = GetWireEndVertex(builder.Wire());
+
+            for (size_t i = 0; i < edges.size(); ++i) {
+                if (used[i]) continue;
+                
+                if (EdgeConnectsToVertex(edges[i], end_vertex)) {
+                    builder.Add(edges[i]);
+                    if (builder.IsDone()) {
+                        used[i] = true;
+                        found_connection = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return builder.IsDone() ? std::make_optional(builder.Wire()) : std::nullopt;
+    }
+
+    std::vector<TopoDS_Edge> StepSlicer::GetOrderedEdges(const TopoDS_Wire& wire) const {
+        std::vector<TopoDS_Edge> edges;
+        for (BRepTools_WireExplorer exp(wire); exp.More(); exp.Next()) {
+            edges.push_back(exp.Current());
+        }
+        return edges;
+    }
+
+    std::optional<std::vector<geometry_contract::Point2D>> StepSlicer::DiscretizeEdge(const TopoDS_Edge& edge, double tolerance) const {
+        Standard_Real first, last;
+        Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+        
+        if (curve.IsNull()) return std::nullopt;
+        
+        return DiscretizeCurve(curve, first, last, tolerance);
+    }
+
+    std::vector<geometry_contract::Point2D> StepSlicer::DiscretizeCurve(const opencascade::handle<Geom_Curve>& curve, Standard_Real first, Standard_Real last, double tolerance) const {
         GeomAdaptor_Curve adaptor(curve);
         GCPnts_UniformDeflection discretizer;
-        discretizer.Initialize(adaptor, tolerance, first_param, last_param);
+        discretizer.Initialize(adaptor, tolerance, first, last);
 
-        if (!discretizer.IsDone()) {
-            std::cout << "                [DiscretizeCurve] WARNING: Curve discretization failed." << std::endl;
-            return {};
-        }
+        if (!discretizer.IsDone()) return {};
 
         std::vector<geometry_contract::Point2D> points;
         points.reserve(discretizer.NbPoints());
+        
         for (int i = 1; i <= discretizer.NbPoints(); ++i) {
             gp_Pnt p = discretizer.Value(i);
-            points.push_back({ p.X(), p.Y() });
+            points.push_back({p.X(), p.Y()});
         }
+        
         return points;
+    }
+
+    // =============================================================================
+    // HELPER FUNCTIONS - SLAP Level 5: Basic utilities
+    // =============================================================================
+
+    size_t StepSlicer::EstimateLayerCount(const SlicingParameters& params) const {
+        return static_cast<size_t>((params.z_max - params.z_min) / params.layer_height) + 1;
+    }
+
+    bool StepSlicer::HasValidContours(const geometry_contract::SlicedLayer& layer) const {
+        return !layer.contours.empty();
+    }
+
+    int StepSlicer::CountSubShapes(const TopoDS_Shape& shape, TopAbs_ShapeEnum type) const {
+        int count = 0;
+        for (TopExp_Explorer exp(shape, type); exp.More(); exp.Next()) {
+            count++;
+        }
+        return count;
+    }
+
+    TopoDS_Vertex StepSlicer::GetWireEndVertex(const TopoDS_Wire& wire) const {
+        TopoDS_Vertex start, end;
+        TopExp::Vertices(wire, start, end);
+        return end;
+    }
+
+    bool StepSlicer::EdgeConnectsToVertex(const TopoDS_Edge& edge, const TopoDS_Vertex& vertex) const {
+        TopoDS_Vertex start, end;
+        TopExp::Vertices(edge, start, end);
+        return vertex.IsSame(start) || vertex.IsSame(end);
+    }
+
+    void StepSlicer::AppendPointsToContour(geometry_contract::Contour& contour, const std::vector<geometry_contract::Point2D>& points) const {
+        if (contour.points.empty()) {
+            contour.points = points;
+        } else {
+            contour.points.insert(contour.points.end(), points.begin() + 1, points.end());
+        }
+    }
+
+    // =============================================================================
+    // LOGGING FUNCTIONS - Separated for clarity
+    // =============================================================================
+
+    void StepSlicer::LogSlicingStart() const {
+        std::cout << "[StepSlicer] Starting slicing process..." << std::endl;
+    }
+
+    void StepSlicer::LogSlicingComplete(size_t layer_count) const {
+        std::cout << "[StepSlicer] Slicing complete. Generated " << layer_count << " layers." << std::endl;
+    }
+
+    void StepSlicer::LogSlicingError(const std::string& message) const {
+        std::cerr << "[StepSlicer] ERROR: " << message << std::endl;
+    }
+
+    void StepSlicer::LogShapeValidationError() const {
+        std::cerr << "[StepSlicer] ERROR: Shape validation failed." << std::endl;
+    }
+
+    void StepSlicer::LogShapeInfo(const TopoDS_Shape& shape) const {
+        int solids = CountSubShapes(shape, TopAbs_SOLID);
+        int shells = CountSubShapes(shape, TopAbs_SHELL);
+        int faces = CountSubShapes(shape, TopAbs_FACE);
+        
+        std::cout << "[StepSlicer] Shape loaded: " << solids << " solids, " 
+                  << shells << " shells, " << faces << " faces" << std::endl;
     }
 
 } // namespace geometry
