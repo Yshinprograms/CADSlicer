@@ -52,6 +52,9 @@ namespace geometry {
 
         std::cout << "[StepSlicer] Slicing process finished. Returning " << all_layers.size() << " layers." << std::endl;
         return all_layers;
+
+        std::cout << "[StepSlicer] Slicing process finished. Returning " << all_layers.size() << " layers." << std::endl;
+        return all_layers;
     }
 
     TopoDS_Shape StepSlicer::LoadModel() const {

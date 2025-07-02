@@ -28,6 +28,7 @@ SOFTWARE.
 
 #include <optional>
 #include <fstream>
+#include <iostream>
 
 #include "google/protobuf/util/delimited_message_util.h"
 
@@ -103,7 +104,7 @@ namespace open_vector_format::reader_writer {
 
         operation_ = FileOperationState::kCompleteWrite;
 
-        ofs_ = std::ofstream{ path };
+        ofs_ = std::ofstream{ path, std::ios::binary };
 
         WriteHeader(job);
 
@@ -141,7 +142,12 @@ namespace open_vector_format::reader_writer {
         job_shell_->mutable_job_meta_data()->MergeFrom(job.job_meta_data());
         job_shell_->mutable_marking_params_map()->insert(job.marking_params_map().begin(), job.marking_params_map().end());
         job_shell_->mutable_parts_map()->insert(job.parts_map().begin(), job.parts_map().end());
-        job_shell_->mutable_job_parameters()->MergeFrom(job.job_parameters());
+        
+        // Properly handle job_parameters - only merge if the source has job_parameters
+        if (job.has_job_parameters()) {
+            job_shell_->mutable_job_parameters()->MergeFrom(job.job_parameters());
+        }
+        
         job_shell_->set_num_work_planes(0); // This will be incremented as we add planes.
         // --- End of Fix ---
 
@@ -187,6 +193,9 @@ namespace open_vector_format::reader_writer {
         // Now, simply clear the vector_blocks field from our copy.
         // This is much more reliable than using the MergeExcluding utility.
         shell_to_write.clear_vector_blocks();
+
+        // CRITICAL FIX: Set the num_blocks field so readers know how many VectorBlocks to read
+        shell_to_write.set_num_blocks(wp.vector_blocks_size());
 
         // write next work plane number to shell
         auto next_work_plane_num = job_shell_->num_work_planes();

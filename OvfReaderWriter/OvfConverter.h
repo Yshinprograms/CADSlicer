@@ -1,10 +1,10 @@
-
 #pragma once
 
 #include <string>
 #include <vector>
 #include "open_vector_format.pb.h" // OVF protobuf definitions
-#include "GeometryContract.h"    // Your custom geometry structs
+#include "ovf_file_writer.h"       // Include the writer header
+#include "GeometryContract.h"      // Your custom geometry structs
 
 namespace ovf = open_vector_format;
 
@@ -53,8 +53,23 @@ private:
     // by the public setter methods before being passed to the writer.
     ovf::Job job_shell_;
 
+    struct ConversionStats {
+        int layer_count = 0;
+        int total_contours = 0;
+    };
+
     /**
      * @brief (Private Helper) Converts a single contour to a VectorBlock.
      */
     ovf::VectorBlock convertContourToVectorBlock(const geometry_contract::Contour& contour, int marking_params_key) const;
+
+    // Refactored helper methods for SLAP/KISS principles
+    void LogConversionStart(size_t layer_count) const;
+    void LogConversionSuccess(const ConversionStats& stats, const std::string& output_path) const;
+    ConversionStats ProcessAllLayers(open_vector_format::reader_writer::OvfFileWriter& writer, const std::vector<geometry_contract::SlicedLayer>& layers);
+    void ProcessSingleLayer(open_vector_format::reader_writer::OvfFileWriter& writer, const geometry_contract::SlicedLayer& layer, int layer_number, int& total_contours);
+    void CreateAndAppendWorkPlane(open_vector_format::reader_writer::OvfFileWriter& writer, double z_height);
+    void LogLayerProgress(int layer_number, double z_height, size_t contour_count) const;
+    void ProcessLayerContours(open_vector_format::reader_writer::OvfFileWriter& writer, const geometry_contract::SlicedLayer& layer, int layer_number, int& total_contours);
+    void LogContourDetails(int layer_number, size_t contour_idx, const geometry_contract::Contour& contour) const;
 };
