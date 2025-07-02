@@ -2,7 +2,7 @@
 
 #include <vector>
 #include <optional>
-#include "../SharedGeometry/GeometryContract.h"
+#include "GeometryContract.h"
 
 // --- OCCT Forward Declarations ---
 #include <Standard_Handle.hxx>
@@ -143,6 +143,49 @@ namespace cad_slicer {
         static bool AnalyzeControlPointPattern(
             const Handle(Geom_BSplineCurve)& bspline,
             double tolerance);
+
+        // =============================================================================
+        // ADVANCED GEOMETRIC ANALYSIS METHODS
+        // =============================================================================
+        
+        /// Alternative geometric analysis for circular B-splines
+        static bool AnalyzeBSplineCircularGeometry(
+            const Handle(Geom_BSplineCurve)& bspline,
+            double tolerance,
+            gp_Circ& fitted_circle);
+            
+        /// Alternative geometric analysis for elliptical B-splines
+        static bool AnalyzeBSplineEllipticalGeometry(
+            const Handle(Geom_BSplineCurve)& bspline,
+            double tolerance,
+            gp_Elips& fitted_ellipse);
+            
+        /// Fit circle to a set of 3D points
+        static bool FitCircleToPoints(
+            const std::vector<gp_Pnt>& points,
+            double tolerance,
+            gp_Circ& fitted_circle);
+            
+        /// Fit ellipse to a set of 3D points
+        static bool FitEllipseToPoints(
+            const std::vector<gp_Pnt>& points,
+            double tolerance,
+            gp_Elips& fitted_ellipse);
+            
+        /// Check if control points follow circular pattern
+        static bool IsControlPointPatternCircular(
+            const std::vector<gp_Pnt>& control_points,
+            double tolerance);
+            
+        /// Check if control points follow elliptical pattern
+        static bool IsControlPointPatternElliptical(
+            const std::vector<gp_Pnt>& control_points,
+            double tolerance);
+            
+        /// Calculate geometric center of control points
+        static bool CalculateControlPointCenter(
+            const std::vector<gp_Pnt>& control_points,
+            gp_Pnt& center);
     };
 
 } // namespace cad_slicer
