@@ -111,7 +111,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)shared;$(SolutionDir)libs\occt_vc14-64-pch\inc</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)SharedGeometry;$(SolutionDir)libs\occt_vc14-64-pch\inc</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -130,7 +130,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)shared;$(SolutionDir)libs\occt_vc14-64-pch\inc</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)SharedGeometry;$(SolutionDir)libs\occt_vc14-64-pch\inc</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -139,10 +139,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CurveAnalyzer.h" />
     <ClInclude Include="StepSlicer.h" />
     <ClInclude Include="WireBuilder.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CurveAnalyzer.cpp" />
     <ClCompile Include="StepSlicer.cpp" />
     <ClCompile Include="WireBuilder.cpp" />
   </ItemGroup>

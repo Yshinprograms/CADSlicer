@@ -17,7 +17,7 @@ class Geom_Curve;
 class Bnd_Box;
 class BRepBuilderAPI_MakeWire;
 
-#include "GeometryContract.h"
+#include "../SharedGeometry/GeometryContract.h"
 
 namespace cad_slicer {
 

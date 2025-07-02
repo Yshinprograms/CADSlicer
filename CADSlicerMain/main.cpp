@@ -18,8 +18,8 @@ namespace ovf = open_vector_format;
 int main() {
     // 1. SETUP: Define constants for clarity and easy modification
     // Note: In C++, backslashes in string literals must be escaped.
-    const std::string step_file_path = "C:\\Users\\pin20\\Downloads\\SIMTech_Internship\\DesignSamples\\STEPSamples\\lilcomplex.step";
-    const std::string ovf_output_path = "lilcomplex.ovf";
+    const std::string step_file_path = "C:\\Users\\pin20\\Downloads\\SIMTech_Internship\\DesignSamples\\STEPSamples\\circle.step";
+    const std::string ovf_output_path = "circle.ovf";
     const double layer_height = 0.1;          // Slice every 0.1 mm
     const double deflection_tolerance = 0.01; // High quality discretization
 

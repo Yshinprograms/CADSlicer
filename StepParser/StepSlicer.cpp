@@ -102,8 +102,8 @@ namespace cad_slicer {
 
         TopoDS_Shape section = PerformSliceOperation(model, slice_z);
         if (!section.IsNull()) {
-            // Use WireBuilder to extract contours from the section
-            layer.contours = WireBuilder::ExtractContoursFromSection(section, tolerance);
+            // Use enhanced WireBuilder to extract optimal contours with native curves
+            layer.contours = WireBuilder::ExtractOptimalContoursFromSection(section, tolerance);
         }
 
         return layer;

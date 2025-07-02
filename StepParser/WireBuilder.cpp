@@ -1,4 +1,5 @@
 #include "WireBuilder.h"
+#include "CurveAnalyzer.h"
 
 // --- OCCT Includes ---
 #include <TopoDS_Shape.hxx>
@@ -19,6 +20,7 @@
 
 #include <optional>
 #include <utility>
+#include <iostream>
 
 namespace cad_slicer {
 
@@ -36,6 +38,22 @@ namespace cad_slicer {
             }
         }
         
+        return contours;
+    }
+
+    std::vector<geometry_contract::Contour> WireBuilder::ExtractOptimalContoursFromSection(const TopoDS_Shape& section, double tolerance) {
+        std::vector<TopoDS_Wire> wires = ExtractWires(section);
+        std::vector<geometry_contract::Contour> contours;
+        
+        std::cout << "[WireBuilder] Processing " << wires.size() << " wires for optimal curve extraction" << std::endl;
+        
+        for (const auto& wire : wires) {
+            if (auto contour = ConvertWireToOptimalContour(wire, tolerance)) {
+                contours.push_back(std::move(*contour));
+            }
+        }
+        
+        std::cout << "[WireBuilder] Successfully extracted " << contours.size() << " optimal contours" << std::endl;
         return contours;
     }
 
@@ -59,7 +77,43 @@ namespace cad_slicer {
             }
         }
         
-        return contour.points.empty() ? std::nullopt : std::make_optional(contour);
+        return contour.points().empty() ? std::nullopt : std::make_optional(contour);
+    }
+
+    std::optional<geometry_contract::Contour> WireBuilder::ConvertWireToOptimalContour(const TopoDS_Wire& wire, double tolerance) {
+        // Use CurveAnalyzer to get optimal curve representation
+        auto optimal_contour = CurveAnalyzer::AnalyzeWireToContour(wire, tolerance);
+        
+        if (optimal_contour.has_value()) {
+            std::cout << "[WireBuilder] Successfully converted wire to optimal contour with " 
+                      << optimal_contour->segments.size() << " curve segments" << std::endl;
+                      
+            // Log curve segment types for debugging
+            for (size_t i = 0; i < optimal_contour->segments.size(); ++i) {
+                const auto& segment = optimal_contour->segments[i];
+                switch (segment.GetType()) {
+                    case geometry_contract::CurveType::Arc:
+                        std::cout << "  Segment " << i << ": Arc (radius: " 
+                                  << segment.GetArc().radius << ")" << std::endl;
+                        break;
+                    case geometry_contract::CurveType::Ellipse:
+                        std::cout << "  Segment " << i << ": Ellipse (a: " 
+                                  << segment.GetEllipse().semi_major_axis << ", b: " 
+                                  << segment.GetEllipse().semi_minor_axis << ")" << std::endl;
+                        break;
+                    case geometry_contract::CurveType::LineSequence:
+                        std::cout << "  Segment " << i << ": LineSequence (" 
+                                  << segment.GetPoints().size() << " points)" << std::endl;
+                        break;
+                }
+            }
+            
+            return optimal_contour;
+        }
+        
+        // Fallback to legacy discretization
+        std::cout << "[WireBuilder] Falling back to legacy discretization for wire" << std::endl;
+        return ConvertWireToContour(wire, tolerance);
     }
 
     // =============================================================================
@@ -190,7 +244,7 @@ namespace cad_slicer {
     }
 
     // =============================================================================
-    // DISCRETIZATION AND CONTOUR CONVERSION
+    // DISCRETIZATION AND CONTOUR CONVERSION (Legacy methods)
     // =============================================================================
 
     std::optional<std::vector<geometry_contract::Point2D>> WireBuilder::DiscretizeEdge(const TopoDS_Edge& edge, double tolerance) {
@@ -221,10 +275,20 @@ namespace cad_slicer {
     }
 
     void WireBuilder::AppendPointsToContour(geometry_contract::Contour& contour, const std::vector<geometry_contract::Point2D>& points) {
-        if (contour.points.empty()) {
-            contour.points = points;
+        // Convert to legacy format by creating a line sequence segment
+        geometry_contract::Contour legacy_contour(points);
+        
+        // Copy the legacy points if this is the first segment
+        if (contour.segments.empty() && contour.points().empty()) {
+            contour = legacy_contour;
         } else {
-            contour.points.insert(contour.points.end(), points.begin() + 1, points.end());
+            // Append points to existing legacy representation
+            auto& existing_points = const_cast<std::vector<geometry_contract::Point2D>&>(contour.points());
+            if (existing_points.empty()) {
+                existing_points = points;
+            } else {
+                existing_points.insert(existing_points.end(), points.begin() + 1, points.end());
+            }
         }
     }
 

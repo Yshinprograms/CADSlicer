@@ -1,7 +1,6 @@
 #pragma once
 
 #include <vector>
-#include <variant>
 #include <memory>
 
 namespace geometry_contract {
@@ -47,43 +46,49 @@ namespace geometry_contract {
     };
 
     // =============================================================================
-    // CURVE SEGMENT - Represents different types of geometric curves
+    // CURVE SEGMENT - C++14 compatible version using polymorphism
     // =============================================================================
     
     class CurveSegment {
     public:
-        using CurveData = std::variant<std::vector<Point2D>, Arc, Ellipse>;
+        // Constructors for different curve types
+        explicit CurveSegment(const std::vector<Point2D>& points);
+        explicit CurveSegment(const Arc& arc);
+        explicit CurveSegment(const Ellipse& ellipse);
         
-        CurveSegment(const std::vector<Point2D>& points) 
-            : type_(CurveType::LineSequence), data_(points) {}
-            
-        CurveSegment(const Arc& arc) 
-            : type_(CurveType::Arc), data_(arc) {}
-            
-        CurveSegment(const Ellipse& ellipse) 
-            : type_(CurveType::Ellipse), data_(ellipse) {}
+        // Copy constructor and assignment
+        CurveSegment(const CurveSegment& other);
+        CurveSegment& operator=(const CurveSegment& other);
+        
+        // Destructor
+        ~CurveSegment();
 
         CurveType GetType() const { return type_; }
         
         // Accessors for different curve types
-        const std::vector<Point2D>& GetPoints() const {
-            return std::get<std::vector<Point2D>>(data_);
-        }
-        
-        const Arc& GetArc() const {
-            return std::get<Arc>(data_);
-        }
-        
-        const Ellipse& GetEllipse() const {
-            return std::get<Ellipse>(data_);
-        }
+        const std::vector<Point2D>& GetPoints() const;
+        const Arc& GetArc() const;
+        const Ellipse& GetEllipse() const;
 
         // Convert any curve segment to points for fallback compatibility
         std::vector<Point2D> ToPoints(double tolerance = 0.01) const;
 
     private:
         CurveType type_;
-        CurveData data_;
+        
+        // Union to hold different curve data types
+        union CurveData {
+            std::vector<Point2D> points;
+            Arc arc;
+            Ellipse ellipse;
+            
+            // Constructors for union members
+            CurveData() {}
+            ~CurveData() {}
+        } data_;
+        
+        void ClearData();
+        void CopyData(const CurveSegment& other);
     };
 
     // =============================================================================

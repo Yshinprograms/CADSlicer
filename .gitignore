@@ -4,3 +4,5 @@ libs/occt_vc14-64-pch/
 libs/3rdparty-vc14-64/
 .serena/
 dependencies/
+.mcp.json
+IMPLEMENTATION_SUMMARY.md

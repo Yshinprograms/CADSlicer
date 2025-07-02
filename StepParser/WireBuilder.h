@@ -14,7 +14,7 @@ class TopoDS_Vertex;
 class Geom_Curve;
 class BRepBuilderAPI_MakeWire;
 
-#include "GeometryContract.h"
+#include "../SharedGeometry/GeometryContract.h"
 
 namespace cad_slicer {
 
@@ -27,11 +27,17 @@ namespace cad_slicer {
         /// Extracts wires from a section shape and converts them to contours
         static std::vector<geometry_contract::Contour> ExtractContoursFromSection(const TopoDS_Shape& section, double tolerance);
         
+        /// Enhanced method that preserves curve geometry using CurveAnalyzer
+        static std::vector<geometry_contract::Contour> ExtractOptimalContoursFromSection(const TopoDS_Shape& section, double tolerance);
+        
         /// Extracts all wires from a section shape
         static std::vector<TopoDS_Wire> ExtractWires(const TopoDS_Shape& section);
         
         /// Converts a single wire to a contour with specified tolerance
         static std::optional<geometry_contract::Contour> ConvertWireToContour(const TopoDS_Wire& wire, double tolerance);
+        
+        /// Enhanced conversion that preserves curve geometry
+        static std::optional<geometry_contract::Contour> ConvertWireToOptimalContour(const TopoDS_Wire& wire, double tolerance);
 
     private:
         // =============================================================================
@@ -89,7 +95,7 @@ namespace cad_slicer {
         static bool EdgeConnectsToVertex(const TopoDS_Edge& edge, const TopoDS_Vertex& vertex);
 
         // =============================================================================
-        // DISCRETIZATION AND CONTOUR CONVERSION
+        // DISCRETIZATION AND CONTOUR CONVERSION (Legacy methods)
         // =============================================================================
         
         /// Discretizes an edge into 2D points

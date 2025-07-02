@@ -4,7 +4,7 @@
 #include <vector>
 #include "open_vector_format.pb.h" // OVF protobuf definitions
 #include "ovf_file_writer.h"       // Include the writer header
-#include "GeometryContract.h"      // Your custom geometry structs
+#include "../SharedGeometry/GeometryContract.h"      // Your custom geometry structs
 
 namespace ovf = open_vector_format;
 
@@ -13,6 +13,7 @@ namespace ovf = open_vector_format;
  *
  * This class acts as an adapter, taking application-specific geometry data
  * and using the OvfFileWriter to produce a valid .ovf file.
+ * Enhanced to support native curve types (arcs and ellipses) from the post-processing module.
  */
 class OvfConverter {
 public:
@@ -56,20 +57,75 @@ private:
     struct ConversionStats {
         int layer_count = 0;
         int total_contours = 0;
+        int total_arcs = 0;
+        int total_ellipses = 0;
+        int total_line_sequences = 0;
     };
 
+    // =============================================================================
+    // CONTOUR CONVERSION METHODS
+    // =============================================================================
+
     /**
-     * @brief (Private Helper) Converts a single contour to a VectorBlock.
+     * @brief Converts a single contour to VectorBlocks, handling different curve types.
+     */
+    std::vector<ovf::VectorBlock> ConvertContourToVectorBlocks(
+        const geometry_contract::Contour& contour, int marking_params_key) const;
+
+    /**
+     * @brief (Legacy) Converts a single contour to a VectorBlock using points only.
      */
     ovf::VectorBlock convertContourToVectorBlock(const geometry_contract::Contour& contour, int marking_params_key) const;
+
+    // =============================================================================
+    // CURVE SEGMENT CONVERSION METHODS
+    // =============================================================================
+
+    /**
+     * @brief Converts a curve segment to the appropriate OVF VectorBlock type.
+     */
+    ovf::VectorBlock ConvertCurveSegmentToVectorBlock(
+        const geometry_contract::CurveSegment& segment, int marking_params_key) const;
+
+    /**
+     * @brief Converts an Arc to OVF Arcs format.
+     */
+    ovf::VectorBlock ConvertArcToVectorBlock(
+        const geometry_contract::Arc& arc, int marking_params_key) const;
+
+    /**
+     * @brief Converts an Ellipse to OVF Ellipses format.
+     */
+    ovf::VectorBlock ConvertEllipseToVectorBlock(
+        const geometry_contract::Ellipse& ellipse, int marking_params_key) const;
+
+    /**
+     * @brief Converts a line sequence to OVF LineSequence format.
+     */
+    ovf::VectorBlock ConvertLineSequenceToVectorBlock(
+        const std::vector<geometry_contract::Point2D>& points, int marking_params_key) const;
+
+    // =============================================================================
+    // HELPER METHODS
+    // =============================================================================
+
+    /**
+     * @brief Updates conversion statistics based on curve segment type.
+     */
+    void UpdateConversionStats(ConversionStats& stats, const geometry_contract::CurveSegment& segment) const;
+
+    /**
+     * @brief Logs detailed information about curve conversion.
+     */
+    void LogCurveConversionDetails(const geometry_contract::Contour& contour) const;
 
     // Refactored helper methods for SLAP/KISS principles
     void LogConversionStart(size_t layer_count) const;
     void LogConversionSuccess(const ConversionStats& stats, const std::string& output_path) const;
     ConversionStats ProcessAllLayers(open_vector_format::reader_writer::OvfFileWriter& writer, const std::vector<geometry_contract::SlicedLayer>& layers);
-    void ProcessSingleLayer(open_vector_format::reader_writer::OvfFileWriter& writer, const geometry_contract::SlicedLayer& layer, int layer_number, int& total_contours);
+    void ProcessSingleLayer(open_vector_format::reader_writer::OvfFileWriter& writer, const geometry_contract::SlicedLayer& layer, int layer_number, ConversionStats& stats);
     void CreateAndAppendWorkPlane(open_vector_format::reader_writer::OvfFileWriter& writer, double z_height);
     void LogLayerProgress(int layer_number, double z_height, size_t contour_count) const;
-    void ProcessLayerContours(open_vector_format::reader_writer::OvfFileWriter& writer, const geometry_contract::SlicedLayer& layer, int layer_number, int& total_contours);
+    void ProcessLayerContours(open_vector_format::reader_writer::OvfFileWriter& writer, const geometry_contract::SlicedLayer& layer, int layer_number, ConversionStats& stats);
     void LogContourDetails(int layer_number, size_t contour_idx, const geometry_contract::Contour& contour) const;
 };
