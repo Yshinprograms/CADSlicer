@@ -121,10 +121,10 @@ namespace geometry {
             return loaded_shape;
         }
 
-        if (loaded_shape.ShapeType() < TopAbs_SHELL) {
-            std::cerr << "    [LoadModel] ERROR: Loaded shape is not a shell or solid, cannot create solid." << std::endl;
-            return {};
-        }
+        //if (loaded_shape.ShapeType() < TopAbs_SHELL) {
+        //    std::cerr << "    [LoadModel] ERROR: Loaded shape is not a shell or solid, cannot create solid." << std::endl;
+        //    return {};
+        //}
 
         std::cout << "    [LoadModel] Shape is a Shell. Attempting to build a solid from it..." << std::endl;
 

@@ -195,7 +195,7 @@ ovf::VectorBlock OvfConverter::convertContourToVectorBlock(const geometry_contra
         line_seq->add_points(static_cast<float>(point.y));
         point_count++;
         
-        if (point_count <= 3) {  // Log first few points for verification
+        if (point_count <= 10) {  // Log first few points for verification
             std::cout << "DEBUG: Added point " << point_count << ": (" << point.x << ", " << point.y << ")" << std::endl;
         }
     }
