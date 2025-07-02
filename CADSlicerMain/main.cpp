@@ -38,7 +38,7 @@ int main() {
     std::cout << "Initializing slicer for file: " << step_file_path << std::endl;
     
     try {
-        geometry::StepSlicer slicer(step_file_path);
+        cad_slicer::StepSlicer slicer(step_file_path);
 
         std::cout << "Slicing model with layer height " << layer_height
             << "mm and tolerance " << deflection_tolerance << "mm..." << std::endl;

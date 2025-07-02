@@ -1,4 +1,5 @@
 #include "StepSlicer.h"
+#include "WireBuilder.h"
 #include "GeometryContract.h"
 
 // --- OCCT Includes ---
@@ -15,16 +16,11 @@
 #include <BRepAlgoAPI_Section.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
-#include <Geom_Curve.hxx>
-#include <GeomAdaptor_Curve.hxx>
-#include <GCPnts_UniformDeflection.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
-#include <BRepTools_WireExplorer.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepCheck_Analyzer.hxx>
-#include <BRepBuilderAPI_MakeWire.hxx>
 #include <TopExp.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 
@@ -32,7 +28,7 @@
 #include <utility>
 #include <iostream>
 
-namespace geometry {
+namespace cad_slicer {
 
     // =============================================================================
     // PUBLIC INTERFACE - SLAP Level 1: High-level orchestration
@@ -80,19 +76,24 @@ namespace geometry {
         std::vector<geometry_contract::SlicedLayer> layers;
         layers.reserve(EstimateLayerCount(params));
 
-        const double slice_offset = params.layer_height / 2.0;
-        
         for (double z = params.z_min; z < params.z_max; z += params.layer_height) {
-            double slice_z = z + slice_offset;
-            if (slice_z > params.z_max) break;
-
-            auto layer = CreateSingleSlice(model, slice_z, z, params.deflection_tolerance);
-            if (HasValidContours(layer)) {
-                layers.push_back(std::move(layer));
+            if (auto layer = TryCreateSliceAtHeight(model, z, params)) {
+                layers.push_back(std::move(*layer));
             }
         }
         
         return layers;
+    }
+
+    std::optional<geometry_contract::SlicedLayer> StepSlicer::TryCreateSliceAtHeight(const TopoDS_Shape& model, double z_base, const SlicingParameters& params) const {
+        double slice_z = CalculateSlicePosition(z_base, params.layer_height);
+        
+        if (IsSlicePositionValid(slice_z, params.z_max)) {
+            auto layer = CreateSingleSlice(model, slice_z, z_base, params.deflection_tolerance);
+            return HasValidContours(layer) ? std::make_optional(layer) : std::nullopt;
+        }
+        
+        return std::nullopt;
     }
 
     geometry_contract::SlicedLayer StepSlicer::CreateSingleSlice(const TopoDS_Shape& model, double slice_z, double layer_z, double tolerance) const {
@@ -101,7 +102,8 @@ namespace geometry {
 
         TopoDS_Shape section = PerformSliceOperation(model, slice_z);
         if (!section.IsNull()) {
-            layer.contours = ExtractContoursFromSection(section, tolerance);
+            // Use WireBuilder to extract contours from the section
+            layer.contours = WireBuilder::ExtractContoursFromSection(section, tolerance);
         }
 
         return layer;
@@ -172,42 +174,6 @@ namespace geometry {
         return section_algorithm.IsDone() ? section_algorithm.Shape() : TopoDS_Shape{};
     }
 
-    std::vector<geometry_contract::Contour> StepSlicer::ExtractContoursFromSection(const TopoDS_Shape& section, double tolerance) const {
-        std::vector<TopoDS_Wire> wires = ExtractWires(section);
-        std::vector<geometry_contract::Contour> contours;
-        
-        for (const auto& wire : wires) {
-            if (auto contour = ConvertWireToContour(wire, tolerance)) {
-                contours.push_back(std::move(*contour));
-            }
-        }
-        
-        return contours;
-    }
-
-    std::vector<TopoDS_Wire> StepSlicer::ExtractWires(const TopoDS_Shape& section) const {
-        std::vector<TopoDS_Wire> wires = FindExistingWires(section);
-        
-        if (wires.empty()) {
-            wires = BuildWiresFromLooseEdges(section);
-        }
-        
-        return wires;
-    }
-
-    std::optional<geometry_contract::Contour> StepSlicer::ConvertWireToContour(const TopoDS_Wire& wire, double tolerance) const {
-        std::vector<TopoDS_Edge> edges = GetOrderedEdges(wire);
-        geometry_contract::Contour contour;
-        
-        for (const auto& edge : edges) {
-            if (auto points = DiscretizeEdge(edge, tolerance)) {
-                AppendPointsToContour(contour, *points);
-            }
-        }
-        
-        return contour.points.empty() ? std::nullopt : std::make_optional(contour);
-    }
-
     // =============================================================================
     // UTILITY FUNCTIONS - SLAP Level 4: Basic operations
     // =============================================================================
@@ -252,104 +218,6 @@ namespace geometry {
         }
     }
 
-    std::vector<TopoDS_Wire> StepSlicer::FindExistingWires(const TopoDS_Shape& section) const {
-        std::vector<TopoDS_Wire> wires;
-        for (TopExp_Explorer exp(section, TopAbs_WIRE); exp.More(); exp.Next()) {
-            wires.push_back(TopoDS::Wire(exp.Current()));
-        }
-        return wires;
-    }
-
-    std::vector<TopoDS_Wire> StepSlicer::BuildWiresFromLooseEdges(const TopoDS_Shape& section) const {
-        std::vector<TopoDS_Edge> edges = FindLooseEdges(section);
-        return AssembleWiresFromEdges(edges);
-    }
-
-    std::vector<TopoDS_Edge> StepSlicer::FindLooseEdges(const TopoDS_Shape& section) const {
-        std::vector<TopoDS_Edge> edges;
-        for (TopExp_Explorer exp(section, TopAbs_EDGE, TopAbs_WIRE); exp.More(); exp.Next()) {
-            edges.push_back(TopoDS::Edge(exp.Current()));
-        }
-        return edges;
-    }
-
-    std::vector<TopoDS_Wire> StepSlicer::AssembleWiresFromEdges(const std::vector<TopoDS_Edge>& edges) const {
-        std::vector<TopoDS_Wire> wires;
-        std::vector<bool> used(edges.size(), false);
-
-        for (size_t i = 0; i < edges.size(); ++i) {
-            if (used[i]) continue;
-            
-            if (auto wire = BuildWireFromStartingEdge(edges, used, i)) {
-                wires.push_back(*wire);
-            }
-        }
-
-        return wires;
-    }
-
-    std::optional<TopoDS_Wire> StepSlicer::BuildWireFromStartingEdge(const std::vector<TopoDS_Edge>& edges, std::vector<bool>& used, size_t start_idx) const {
-        BRepBuilderAPI_MakeWire builder;
-        builder.Add(edges[start_idx]);
-        used[start_idx] = true;
-
-        bool found_connection = true;
-        while (found_connection && builder.IsDone()) {
-            found_connection = false;
-            TopoDS_Vertex end_vertex = GetWireEndVertex(builder.Wire());
-
-            for (size_t i = 0; i < edges.size(); ++i) {
-                if (used[i]) continue;
-                
-                if (EdgeConnectsToVertex(edges[i], end_vertex)) {
-                    builder.Add(edges[i]);
-                    if (builder.IsDone()) {
-                        used[i] = true;
-                        found_connection = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        return builder.IsDone() ? std::make_optional(builder.Wire()) : std::nullopt;
-    }
-
-    std::vector<TopoDS_Edge> StepSlicer::GetOrderedEdges(const TopoDS_Wire& wire) const {
-        std::vector<TopoDS_Edge> edges;
-        for (BRepTools_WireExplorer exp(wire); exp.More(); exp.Next()) {
-            edges.push_back(exp.Current());
-        }
-        return edges;
-    }
-
-    std::optional<std::vector<geometry_contract::Point2D>> StepSlicer::DiscretizeEdge(const TopoDS_Edge& edge, double tolerance) const {
-        Standard_Real first, last;
-        Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
-        
-        if (curve.IsNull()) return std::nullopt;
-        
-        return DiscretizeCurve(curve, first, last, tolerance);
-    }
-
-    std::vector<geometry_contract::Point2D> StepSlicer::DiscretizeCurve(const opencascade::handle<Geom_Curve>& curve, Standard_Real first, Standard_Real last, double tolerance) const {
-        GeomAdaptor_Curve adaptor(curve);
-        GCPnts_UniformDeflection discretizer;
-        discretizer.Initialize(adaptor, tolerance, first, last);
-
-        if (!discretizer.IsDone()) return {};
-
-        std::vector<geometry_contract::Point2D> points;
-        points.reserve(discretizer.NbPoints());
-        
-        for (int i = 1; i <= discretizer.NbPoints(); ++i) {
-            gp_Pnt p = discretizer.Value(i);
-            points.push_back({p.X(), p.Y()});
-        }
-        
-        return points;
-    }
-
     // =============================================================================
     // HELPER FUNCTIONS - SLAP Level 5: Basic utilities
     // =============================================================================
@@ -362,32 +230,20 @@ namespace geometry {
         return !layer.contours.empty();
     }
 
+    double StepSlicer::CalculateSlicePosition(double z_base, double layer_height) const {
+        return z_base + (layer_height / 2.0);
+    }
+
+    bool StepSlicer::IsSlicePositionValid(double slice_z, double z_max) const {
+        return slice_z <= z_max;
+    }
+
     int StepSlicer::CountSubShapes(const TopoDS_Shape& shape, TopAbs_ShapeEnum type) const {
         int count = 0;
         for (TopExp_Explorer exp(shape, type); exp.More(); exp.Next()) {
             count++;
         }
         return count;
-    }
-
-    TopoDS_Vertex StepSlicer::GetWireEndVertex(const TopoDS_Wire& wire) const {
-        TopoDS_Vertex start, end;
-        TopExp::Vertices(wire, start, end);
-        return end;
-    }
-
-    bool StepSlicer::EdgeConnectsToVertex(const TopoDS_Edge& edge, const TopoDS_Vertex& vertex) const {
-        TopoDS_Vertex start, end;
-        TopExp::Vertices(edge, start, end);
-        return vertex.IsSame(start) || vertex.IsSame(end);
-    }
-
-    void StepSlicer::AppendPointsToContour(geometry_contract::Contour& contour, const std::vector<geometry_contract::Point2D>& points) const {
-        if (contour.points.empty()) {
-            contour.points = points;
-        } else {
-            contour.points.insert(contour.points.end(), points.begin() + 1, points.end());
-        }
     }
 
     // =============================================================================
@@ -419,4 +275,4 @@ namespace geometry {
                   << shells << " shells, " << faces << " faces" << std::endl;
     }
 
-} // namespace geometry
+} // namespace cad_slicer

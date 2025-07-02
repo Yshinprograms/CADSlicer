@@ -18,9 +18,15 @@
     <ClInclude Include="StepSlicer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="WireBuilder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="StepSlicer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="WireBuilder.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
